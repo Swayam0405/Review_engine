@@ -39,7 +39,8 @@ public class FeedbackOutboxService {
     @Transactional
     public Optional<OutboxEvent> claimNext() {
         Instant now = clock.instant();
-        for (FeedbackOutboxEvent event : outboxRepository.findReadyForUpdate(now, PageRequest.of(0, 25))) {
+        for (FeedbackOutboxEvent event : outboxRepository.findReadyForUpdate(
+                "FEEDBACK_SCHEDULE", now, PageRequest.of(0, 25))) {
             if (event.getStatus() == FeedbackOutboxStatus.PROCESSING
                     && event.getAttemptCount() >= MAX_ATTEMPTS) {
                 event.setStatus(FeedbackOutboxStatus.FAILED);

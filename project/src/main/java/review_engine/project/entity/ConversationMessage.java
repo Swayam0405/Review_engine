@@ -52,6 +52,9 @@ public class ConversationMessage {
     @Column(columnDefinition = "jsonb")
     private String metadata;
 
+    @Column(name = "idempotency_key", length = 64)
+    private String idempotencyKey;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 

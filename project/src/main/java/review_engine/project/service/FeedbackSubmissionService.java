@@ -20,6 +20,9 @@ import review_engine.project.exception.ApiException;
 import review_engine.project.repository.FeedbackAnswerRepository;
 import review_engine.project.repository.FeedbackQuestionRepository;
 import review_engine.project.repository.FeedbackRepository;
+import review_engine.project.repository.FeedbackOutboxRepository;
+import review_engine.project.entity.FeedbackOutboxEvent;
+import review_engine.project.enums.FeedbackOutboxStatus;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -41,18 +44,21 @@ public class FeedbackSubmissionService {
     private final FeedbackQuestionRepository questionRepository;
     private final FeedbackRepository feedbackRepository;
     private final FeedbackAnswerRepository answerRepository;
+    private final FeedbackOutboxRepository outboxRepository;
     private final Clock clock;
 
     public FeedbackSubmissionService(FeedbackRequestService requestService,
                                      FeedbackConversationService conversationService,
                                      FeedbackQuestionRepository questionRepository,
                                      FeedbackRepository feedbackRepository,
-                                     FeedbackAnswerRepository answerRepository, Clock clock) {
+                                     FeedbackAnswerRepository answerRepository,
+                                     FeedbackOutboxRepository outboxRepository, Clock clock) {
         this.requestService = requestService;
         this.conversationService = conversationService;
         this.questionRepository = questionRepository;
         this.feedbackRepository = feedbackRepository;
         this.answerRepository = answerRepository;
+        this.outboxRepository = outboxRepository;
         this.clock = clock;
     }
 
@@ -106,6 +112,14 @@ public class FeedbackSubmissionService {
         feedback.setComment(comment);
         feedback.setSubmittedAt(now);
         feedbackRepository.save(feedback);
+        FeedbackOutboxEvent analysisJob = new FeedbackOutboxEvent();
+        analysisJob.setId(UUID.randomUUID());
+        analysisJob.setEventType("FEEDBACK_ANALYSIS");
+        analysisJob.setAggregateId(feedback.getId());
+        analysisJob.setPayload("{\"feedbackId\":\"" + feedback.getId() + "\"}");
+        analysisJob.setStatus(FeedbackOutboxStatus.PENDING);
+        analysisJob.setNextAttemptAt(now);
+        outboxRepository.save(analysisJob);
 
         for (FeedbackAnswerRequest submittedAnswer : answersByQuestion.values()) {
             FeedbackAnswer answer = new FeedbackAnswer();

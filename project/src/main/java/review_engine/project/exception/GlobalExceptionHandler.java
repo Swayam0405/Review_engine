@@ -10,6 +10,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import review_engine.project.dto.response.ApiResponse;
+import review_engine.project.ai.AIProviderException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -29,6 +30,13 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(ApiException.class)
     public ResponseEntity<ApiResponse<Void>> handleApiException(ApiException exception) {
         return ResponseEntity.status(exception.getStatus()).body(ApiResponse.error(exception.getMessage()));
+    }
+
+    @ExceptionHandler(AIProviderException.class)
+    public ResponseEntity<ApiResponse<Void>> handleAiProviderFailure(AIProviderException exception) {
+        LOGGER.warn("AI provider operation failed: {}", exception.getMessage());
+        return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                .body(ApiResponse.error("AI provider could not produce a valid response."));
     }
 
     /**

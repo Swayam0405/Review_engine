@@ -43,6 +43,18 @@ commit real credentials or secret values.
 | `N8N_INTERNAL_API_KEY` | When n8n is enabled | At least 32 bytes; authenticates n8n delivery-detail requests |
 | `N8N_CALLBACK_SECRET` | When n8n is enabled | At least 32 bytes; authenticates delivery callbacks |
 | `N8N_POLL_INTERVAL_MS` | No | Outbox poll interval; defaults to `5000` and must be at least `1000` |
+| `AI_ENABLED` | No | Enables AI generation; defaults to `false` |
+| `AI_PROVIDER` | No | Provider adapter; currently `openai-compatible` |
+| `AI_API_KEY` | When AI is enabled | Provider credential; keep it in a secret manager |
+| `AI_MODEL` | When AI is enabled | Provider model; defaults to `gpt-4o-mini` |
+| `AI_BASE_URL` | No | OpenAI-compatible API base URL; defaults to `https://api.openai.com/v1`; HTTPS required except localhost |
+| `AI_TIMEOUT` | No | Provider request timeout; defaults to `20s`, maximum `2m` |
+| `AI_MAX_RETRIES` | No | Bounded retry count; defaults to `2`, maximum `5` |
+| `AI_MAX_PROMPT_CHARACTERS` | No | Maximum serialized prompt/context size; defaults to `20000` |
+| `AI_MAX_FOLLOW_UP_QUESTIONS` | No | Maximum optional AI follow-ups per feedback conversation; defaults to `3` |
+| `AI_MAX_ANALYSIS_BATCH` | No | Maximum analyzed-feedback samples included in summary context; defaults to `20` |
+| `AI_RATE_LIMIT_PER_MINUTE` | No | Per-IP limit for summary generation and review-draft generation per application instance; defaults to `10` |
+| `AI_WORKER_INTERVAL` | No | Feedback-analysis outbox poll interval; defaults to `5s` |
 
 Spring Boot Mail also reads standard `SPRING_MAIL_HOST`, `SPRING_MAIL_PORT`,
 `SPRING_MAIL_USERNAME`, `SPRING_MAIL_PASSWORD` and `SPRING_MAIL_PROPERTIES_*` settings.
@@ -206,7 +218,7 @@ meaning of historical feedback.
 | `GET /api/public/feedback/{token}` | — | `200` | Validates an opaque, expiring link and returns active questions |
 | `POST /api/public/feedback/{token}/conversation` | — | `200` | Starts or resumes the deterministic feedback conversation |
 | `GET /api/public/feedback/{token}/conversation` | — | `200` | Reads conversation messages and current active questions |
-| `POST /api/public/feedback/{token}/conversation/messages` | `{"content":"..."}` | `201` | Adds a validated customer message |
+| `POST /api/public/feedback/{token}/conversation/messages` | `{"content":"...","rating":5}` (`rating` optional) | `201` | Adds a validated customer message; AI follow-up is optional |
 | `POST /api/public/feedback/{token}/submit` | `{"rating":5,"comment":"Great service","answers":[{"questionId":"<uuid>","answerText":"..." }]}` | `200` | Atomically stores one final rating, typed answers, and conversation completion |
 
 Public feedback routes are limited per source IP and application instance. Deployments
@@ -216,6 +228,49 @@ only a SHA-256 token digest is stored. Preserve that secret across deployments a
 backups. Rotating it invalidates outstanding links because no raw token is stored.
 Feedback requests expire after the configured lifetime; the scheduled job persists the
 EXPIRED status. Completed feedback cannot be submitted again.
+
+### Phase 5 AI analysis and review drafts
+
+AI is disabled unless `AI_ENABLED=true`. When enabled, configure `AI_API_KEY` and
+`AI_MODEL`; requests use the configured OpenAI-compatible endpoint. Provider calls have
+bounded timeouts/retries and structured outputs are validated before persistence. Avoid
+sending sensitive customer information to a provider unless permitted by your privacy
+policy and provider agreement. AI-generated customer follow-ups are optional; if AI is
+disabled or unavailable, the existing structured feedback conversation remains usable.
+
+Finalized feedback is queued for asynchronous analysis in the durable outbox. The worker
+stores validated analysis results; owner-scoped status and retry operations are available
+below. Insights use deterministic database aggregations for metrics and use AI only for
+evidence-grounded period summaries, which are cached for the exact requested period.
+Date parameters accept ISO-8601 instants. By default, the service reports the preceding
+30 days; a requested period must be positive and no longer than 366 days. AI summaries
+require at least three completed feedback analyses for the period.
+
+| Method and path | Request body / query | Authentication | Result |
+| --- | --- | --- | --- |
+| `GET /api/feedback/{feedbackId}/analysis` | — | Owner bearer JWT | Analysis status and persisted result for feedback in the owner's business |
+| `POST /api/feedback/{feedbackId}/analysis/retry` | — | Owner bearer JWT | Queues an eligible analysis retry |
+| `GET /api/insights/overview` | Optional `from`, `to` | Owner bearer JWT | Deterministic feedback overview |
+| `GET /api/insights/topics` | Optional `from`, `to` | Owner bearer JWT | Topic metrics |
+| `GET /api/insights/issues` | Optional `from`, `to` | Owner bearer JWT | Issue metrics |
+| `GET /api/insights/trends` | Optional `from`, `to` | Owner bearer JWT | Feedback trends |
+| `GET /api/insights/summary` | Optional `from`, `to` | Owner bearer JWT | Cached summary for the requested period |
+| `POST /api/insights/summary/generate` | Optional `from`, `to`, `force` (default `false`) | Owner bearer JWT | Generates or refreshes an evidence-grounded summary |
+| `POST /api/google-reviews/{reviewId}/response-drafts` | Optional `{"tone":"PROFESSIONAL"}` | Owner bearer JWT | Generates a proposed reply for an imported review |
+| `GET /api/google-reviews/{reviewId}/response-drafts` | `page` (default `0`), `size` (default `20`) | Owner bearer JWT | Lists drafts for an owner's imported review |
+| `GET /api/review-response-drafts/{draftId}` | — | Owner bearer JWT | Reads an owner's draft |
+| `PUT /api/review-response-drafts/{draftId}` | `{"responseText":"..."}` | Owner bearer JWT | Edits a draft before approval |
+| `POST /api/review-response-drafts/{draftId}/approve` | — | Owner bearer JWT | Approves a draft and records approver/time; does not publish |
+| `POST /api/review-response-drafts/{draftId}/reject` | Optional `{"reason":"..."}` | Owner bearer JWT | Rejects a draft |
+
+Review-response generation requires a review already persisted for the authenticated
+business. AI rate limiting applies to summary and review-draft generation per source IP
+and application instance. This release provides an internal review-import persistence boundary only:
+it does not synchronize with Google, expose a Google import endpoint, or publish replies.
+Approved replies remain drafts for manual handling; deployments with multiple instances
+should add a shared limit for summary and review-draft generation.
+Migration `V4__add_ai_analysis_insights_and_review_drafts.sql` adds the analysis,
+summary, imported-review, and response-draft schema without modifying prior migrations.
 
 ### n8n / WhatsApp integration
 
