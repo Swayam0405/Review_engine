@@ -16,6 +16,7 @@ import review_engine.project.dto.response.FeedbackConfirmationResponse;
 import review_engine.project.dto.response.FeedbackConversationResponse;
 import review_engine.project.dto.response.PublicFeedbackPageResponse;
 import review_engine.project.service.FeedbackConversationService;
+import review_engine.project.service.ConversationalFeedbackService;
 import review_engine.project.service.FeedbackSubmissionService;
 
 /**
@@ -25,11 +26,14 @@ import review_engine.project.service.FeedbackSubmissionService;
 @RequestMapping("/api/public/feedback/{token}")
 public class PublicFeedbackController {
     private final FeedbackConversationService conversations;
+    private final ConversationalFeedbackService conversationalFeedback;
     private final FeedbackSubmissionService submissions;
 
     public PublicFeedbackController(FeedbackConversationService conversations,
+                                    ConversationalFeedbackService conversationalFeedback,
                                     FeedbackSubmissionService submissions) {
         this.conversations = conversations;
+        this.conversationalFeedback = conversationalFeedback;
         this.submissions = submissions;
     }
 
@@ -53,7 +57,7 @@ public class PublicFeedbackController {
     public ApiResponse<FeedbackConversationResponse> message(@PathVariable String token,
                                                             @Valid @RequestBody CustomerMessageRequest request) {
         return ApiResponse.success("Message received.",
-                conversations.addCustomerMessage(token, request.content()));
+                conversationalFeedback.addMessage(token, request.content(), request.rating()));
     }
 
     @PostMapping("/submit")

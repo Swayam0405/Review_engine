@@ -10,4 +10,6 @@ import java.util.UUID;
  */
 public interface FeedbackAnswerRepository extends JpaRepository<FeedbackAnswer, UUID> {
     boolean existsByQuestionId(UUID questionId);
+
+    java.util.List<FeedbackAnswer> findAllByFeedbackId(UUID feedbackId);
 }

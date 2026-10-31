@@ -20,6 +20,9 @@ import review_engine.project.repository.FeedbackConversationRepository;
 import review_engine.project.repository.FeedbackQuestionRepository;
 
 import java.time.Clock;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.List;
 
 /**
@@ -72,6 +75,16 @@ public class FeedbackConversationService {
 
     @Transactional
     public FeedbackConversationResponse addCustomerMessage(String token, String content) {
+        return addCustomerMessageOnce(token, content).response();
+    }
+
+    @Transactional
+    public CustomerMessageResult addCustomerMessageOnce(String token, String content) {
+        return addCustomerMessageOnce(token, content, null);
+    }
+
+    @Transactional
+    public CustomerMessageResult addCustomerMessageOnce(String token, String content, Integer rating) {
         FeedbackRequest request = requestService.requireValidToken(token, true);
         FeedbackConversation conversation = conversationRepository.findByFeedbackRequestIdForUpdate(request.getId())
                 .orElseThrow(() -> new ApiException(HttpStatus.CONFLICT, "Start the feedback conversation first."));
@@ -83,8 +96,46 @@ public class FeedbackConversationService {
                 || normalized.codePoints().anyMatch(Character::isISOControl)) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Message must contain 1 to 10000 valid characters.");
         }
-        saveMessage(conversation, ConversationSenderType.CUSTOMER, ConversationMessageType.TEXT, normalized);
+        String idempotencyKey = hashMessage(normalized + "|" + rating);
+        var existing = messageRepository.findByConversationIdAndIdempotencyKey(conversation.getId(), idempotencyKey);
+        if (existing.isPresent()) {
+            return new CustomerMessageResult(response(conversation, request), false);
+        }
+        if (rating != null && messageRepository.countByConversationIdAndSenderTypeAndMessageType(
+                conversation.getId(), ConversationSenderType.CUSTOMER, ConversationMessageType.RATING) == 0) {
+            saveMessage(conversation, ConversationSenderType.CUSTOMER, ConversationMessageType.RATING,
+                    "Initial rating: " + rating, hashMessage("initial-rating|" + rating));
+        }
+        saveMessage(conversation, ConversationSenderType.CUSTOMER, ConversationMessageType.TEXT,
+                normalized, idempotencyKey);
+        return new CustomerMessageResult(response(conversation, request), true);
+    }
+
+    @Transactional
+    public FeedbackConversationResponse addAiFollowUp(String token, String question) {
+        FeedbackRequest request = requestService.requireValidToken(token, true);
+        FeedbackConversation conversation = conversationRepository.findByFeedbackRequestIdForUpdate(request.getId())
+                .orElseThrow(() -> new ApiException(HttpStatus.CONFLICT, "Start the feedback conversation first."));
+        if (conversation.getStatus() != FeedbackConversationStatus.IN_PROGRESS) {
+            throw new ApiException(HttpStatus.CONFLICT, "This feedback conversation is no longer active.");
+        }
+        saveMessage(conversation, ConversationSenderType.AI, ConversationMessageType.QUESTION, question);
         return response(conversation, request);
+    }
+
+    @Transactional(readOnly = true)
+    public ConversationContext context(String token) {
+        FeedbackRequest request = requestService.requireValidToken(token, false);
+        FeedbackConversation conversation = conversationRepository.findByFeedbackRequestId(request.getId())
+                .orElseThrow(() -> new ApiException(HttpStatus.CONFLICT, "Start the feedback conversation first."));
+        var messages = messageRepository.findAllByConversationIdOrderByCreatedAtAscIdAsc(conversation.getId()).stream()
+                .map(message -> new ContextMessage(message.getSenderType().name(), message.getMessageType().name(),
+                        message.getContent()))
+                .toList();
+        long questionsAsked = messageRepository.countByConversationIdAndSenderTypeAndMessageType(
+                conversation.getId(), ConversationSenderType.AI, ConversationMessageType.QUESTION);
+        return new ConversationContext(request.getBusiness().getName(), messages, questionsAsked,
+                activeQuestions(request));
     }
 
     public List<FeedbackQuestionResponse> activeQuestions(FeedbackRequest request) {
@@ -105,12 +156,27 @@ public class FeedbackConversationService {
 
     public void saveMessage(FeedbackConversation conversation, ConversationSenderType sender,
                             ConversationMessageType type, String content) {
+        saveMessage(conversation, sender, type, content, null);
+    }
+
+    private void saveMessage(FeedbackConversation conversation, ConversationSenderType sender,
+                             ConversationMessageType type, String content, String idempotencyKey) {
         ConversationMessage message = new ConversationMessage();
         message.setConversation(conversation);
         message.setSenderType(sender);
         message.setMessageType(type);
         message.setContent(content);
+        message.setIdempotencyKey(idempotencyKey);
         messageRepository.save(message);
+    }
+
+    private String hashMessage(String content) {
+        try {
+            return java.util.HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                    .digest(content.getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("Feedback message idempotency is unavailable.", exception);
+        }
     }
 
     private FeedbackConversation createConversation(FeedbackRequest request) {
@@ -136,5 +202,15 @@ public class FeedbackConversationService {
         return new FeedbackQuestionResponse(question.getId(), question.getQuestionText(),
                 question.getQuestionType(), question.isRequired(), question.isActive(),
                 question.getDisplayOrder(), question.getCreatedAt(), question.getUpdatedAt());
+    }
+
+    public record CustomerMessageResult(FeedbackConversationResponse response, boolean newlyAccepted) {
+    }
+
+    public record ContextMessage(String sender, String type, String content) {
+    }
+
+    public record ConversationContext(String businessName, List<ContextMessage> messages,
+                                     long followUpCount, List<FeedbackQuestionResponse> questions) {
     }
 }

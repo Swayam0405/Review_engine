@@ -7,6 +7,6 @@ import org.springframework.context.annotation.Configuration;
  * Enables typed settings for the feedback and n8n subsystems.
  */
 @Configuration
-@EnableConfigurationProperties({FeedbackProperties.class, N8nProperties.class})
+@EnableConfigurationProperties({FeedbackProperties.class, N8nProperties.class, AIProperties.class})
 public class FeedbackConfiguration {
 }

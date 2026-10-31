@@ -94,6 +94,12 @@ class ProjectApplicationTests {
                 "select count(*) from information_schema.tables where table_name = 'auth_identities'",
                 Integer.class);
         org.junit.jupiter.api.Assertions.assertEquals(1, authTableCount);
+        Integer aiTableCount = jdbcTemplate.queryForObject("""
+                select count(*) from information_schema.tables
+                where table_name in ('feedback_analysis', 'insight_summaries',
+                                     'google_reviews', 'review_response_drafts')
+                """, Integer.class);
+        org.junit.jupiter.api.Assertions.assertEquals(4, aiTableCount);
 
         mockMvc.perform(get("/api/auth/me"))
                 .andExpect(status().isUnauthorized())

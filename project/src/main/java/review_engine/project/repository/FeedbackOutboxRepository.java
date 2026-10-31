@@ -30,4 +30,26 @@ public interface FeedbackOutboxRepository extends JpaRepository<FeedbackOutboxEv
     List<FeedbackOutboxEvent> findReadyForUpdate(
             @Param("now") Instant now,
             org.springframework.data.domain.Pageable pageable);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select e from FeedbackOutboxEvent e
+            where e.eventType = :eventType
+              and e.status in (review_engine.project.enums.FeedbackOutboxStatus.PENDING,
+                               review_engine.project.enums.FeedbackOutboxStatus.PROCESSING)
+              and e.nextAttemptAt <= :now
+            order by e.createdAt asc
+            """)
+    List<FeedbackOutboxEvent> findReadyForUpdate(
+            @Param("eventType") String eventType,
+            @Param("now") Instant now,
+            org.springframework.data.domain.Pageable pageable);
+
+    Optional<FeedbackOutboxEvent> findByEventTypeAndAggregateId(String eventType, UUID aggregateId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select e from FeedbackOutboxEvent e where e.eventType = :eventType "
+            + "and e.aggregateId = :aggregateId")
+    Optional<FeedbackOutboxEvent> lockByEventTypeAndAggregateId(
+            @Param("eventType") String eventType, @Param("aggregateId") UUID aggregateId);
 }

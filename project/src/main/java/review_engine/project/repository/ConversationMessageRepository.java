@@ -11,4 +11,12 @@ import java.util.UUID;
  */
 public interface ConversationMessageRepository extends JpaRepository<ConversationMessage, UUID> {
     List<ConversationMessage> findAllByConversationIdOrderByCreatedAtAscIdAsc(UUID conversationId);
+
+    java.util.Optional<ConversationMessage> findByConversationIdAndIdempotencyKey(
+            UUID conversationId, String idempotencyKey);
+
+    long countByConversationIdAndSenderTypeAndMessageType(
+            UUID conversationId,
+            review_engine.project.enums.ConversationSenderType senderType,
+            review_engine.project.enums.ConversationMessageType messageType);
 }
