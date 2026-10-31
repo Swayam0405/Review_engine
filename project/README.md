@@ -18,6 +18,7 @@ commit real credentials or secret values.
 | `OTP_HMAC_SECRET` | Yes | At least 32 bytes of private OTP HMAC key material |
 | `PHONE_ENCRYPTION_KEY` | Yes | Base64-encoded 32-byte AES-256 key for customer phones |
 | `PHONE_HMAC_KEY` | Yes | Base64-encoded independent key of at least 32 bytes for phone lookup |
+| `FEEDBACK_TOKEN_SECRET` | Yes | At least 32 random bytes; keep stable because changing it invalidates issued feedback links |
 | `PHONE_DEFAULT_REGION` | No | ISO region for national-format phone input; defaults to `ZZ` (international numbers only) |
 | `GOOGLE_CLIENT_ID` | For Google sign-in | OAuth client ID accepted as the token audience |
 | `JWT_ISSUER` | No | JWT issuer; defaults to `review-engine` |
@@ -31,6 +32,17 @@ commit real credentials or secret values.
 | `COOKIE_SAME_SITE` | No | Cookie SameSite policy; defaults to `Strict` |
 | `EMAIL_FROM` | No | Sender address; defaults to `no-reply@localhost` |
 | `DEV_RETURN_OTP` | No | When `true` with the `dev` profile, returns OTPs for local-only testing |
+| `FEEDBACK_TOKEN_EXPIRY` | No | Feedback-link lifetime; defaults to `14d` |
+| `FEEDBACK_PUBLIC_BASE_URL` | No | Frontend feedback URL prefix; defaults to `http://localhost:3000/feedback`; HTTPS is required outside localhost |
+| `FEEDBACK_RATE_LIMIT_PER_MINUTE` | No | Per-IP public feedback request limit; defaults to `30` per application instance |
+| `FEEDBACK_EXPIRY_POLL_INTERVAL_MS` | No | Expiration-job interval; defaults to `60000` |
+| `N8N_ENABLED` | No | Enables asynchronous delivery scheduling; defaults to `false` |
+| `N8N_BASE_URL` | When n8n is enabled | n8n base URL; HTTPS is required outside localhost |
+| `N8N_API_KEY` | When n8n is enabled | Credential sent to the configured n8n schedule webhook |
+| `N8N_FEEDBACK_SCHEDULE_WEBHOOK` | When n8n is enabled | Relative webhook path or absolute HTTPS webhook URL |
+| `N8N_INTERNAL_API_KEY` | When n8n is enabled | At least 32 bytes; authenticates n8n delivery-detail requests |
+| `N8N_CALLBACK_SECRET` | When n8n is enabled | At least 32 bytes; authenticates delivery callbacks |
+| `N8N_POLL_INTERVAL_MS` | No | Outbox poll interval; defaults to `5000` and must be at least `1000` |
 
 Spring Boot Mail also reads standard `SPRING_MAIL_HOST`, `SPRING_MAIL_PORT`,
 `SPRING_MAIL_USERNAME`, `SPRING_MAIL_PASSWORD` and `SPRING_MAIL_PROPERTIES_*` settings.
@@ -170,6 +182,72 @@ cutoff. List filters accept only `COMPLETED` for `status`; `from` cannot be afte
 Allowed sort fields are `completedAt`, `createdAt`, and `referenceCode`. Transaction
 update and deletion endpoints are intentionally not provided.
 
+## Feedback collection and delivery
+
+Feedback-question and feedback-request management endpoints require the authenticated
+owner's bearer JWT and derive the business from that identity. Requests can only be
+created for completed transactions in that business; transaction IDs and question IDs
+are always checked against that business. A question's text and answer type cannot be
+changed after it has answers; deactivate it and create a replacement to preserve the
+meaning of historical feedback.
+
+| Method and path | Request body / query | Success | Behavior |
+| --- | --- | --- | --- |
+| `POST /api/feedback-questions` | `{"questionText":"How was your visit?","questionType":"TEXT","required":false,"displayOrder":0,"active":true}` | `201` | Creates a business-owned TEXT, RATING, or YES_NO question |
+| `GET /api/feedback-questions` | Optional `active`, `page` (default `0`), `size` (default `50`, max `100`) | `200` | Lists only the owner's questions |
+| `GET /api/feedback-questions/{questionId}` | — | `200` | Reads only a question in the owner's business |
+| `PUT /api/feedback-questions/{questionId}` | Same fields as create | `200` | Updates question configuration subject to historical-answer protection |
+| `PATCH /api/feedback-questions/{questionId}/status` | `{"active":false}` | `200` | Activates or deactivates the question |
+| `POST /api/feedback-requests` | `{"transactionId":"<transaction-uuid>","scheduledAt":"2026-11-01T10:30:00Z"}` | `201` | Creates a one-per-transaction invitation and durable schedule event; schedule time is optional |
+| `GET /api/feedback-requests` | Optional `status`, `page` (default `0`), `size` (default `20`, max `100`) | `200` | Lists requests only in the owner's business |
+| `GET /api/feedback-requests/{requestId}` | — | `200` | Reads an owner's request without exposing phone or token hash |
+| `PATCH /api/feedback-requests/{requestId}/cancel` | — | `200` | Cancels an incomplete request |
+| `POST /api/feedback-requests/{requestId}/retry` | — | `200` | Queues a new schedule event for an unexpired failed request |
+| `GET /api/public/feedback/{token}` | — | `200` | Validates an opaque, expiring link and returns active questions |
+| `POST /api/public/feedback/{token}/conversation` | — | `200` | Starts or resumes the deterministic feedback conversation |
+| `GET /api/public/feedback/{token}/conversation` | — | `200` | Reads conversation messages and current active questions |
+| `POST /api/public/feedback/{token}/conversation/messages` | `{"content":"..."}` | `201` | Adds a validated customer message |
+| `POST /api/public/feedback/{token}/submit` | `{"rating":5,"comment":"Great service","answers":[{"questionId":"<uuid>","answerText":"..." }]}` | `200` | Atomically stores one final rating, typed answers, and conversation completion |
+
+Public feedback routes are limited per source IP and application instance. Deployments
+with multiple instances should enforce an additional shared/distributed edge limit.
+Links are derived using HMAC-SHA-256 from the request UUID and `FEEDBACK_TOKEN_SECRET`;
+only a SHA-256 token digest is stored. Preserve that secret across deployments and
+backups. Rotating it invalidates outstanding links because no raw token is stored.
+Feedback requests expire after the configured lifetime; the scheduled job persists the
+EXPIRED status. Completed feedback cannot be submitted again.
+
+### n8n / WhatsApp integration
+
+The integration is disabled unless `N8N_ENABLED=true`. When enabled, the application
+claims durable outbox events with database row locks, calls the configured n8n webhook
+outside the database transaction, and retries transient failures with bounded backoff.
+The webhook receives only an event ID, request ID, scheduled time, and event type; it
+does not receive phone numbers or feedback tokens in the scheduling payload. The n8n
+workflow should wait until `scheduledAt`, then fetch delivery data over HTTPS:
+
+```text
+GET /api/internal/feedback-requests/{requestId}/delivery?eventId={eventId}
+X-Internal-Api-Key: <N8N_INTERNAL_API_KEY>
+```
+
+That protected response contains the customer phone and opaque feedback link. Treat it
+as sensitive, do not log it, and do not expose the internal key in a browser. After
+WhatsApp provider updates, n8n can POST a JSON callback to
+`/api/internal/webhooks/whatsapp/delivery` with
+`X-Webhook-Secret: <N8N_CALLBACK_SECRET>`. The body includes `eventId`,
+`feedbackRequestId`, `deliveryEventId` (the schedule event ID returned by the delivery
+details endpoint), `status` (`SENT`, `DELIVERED`, or `FAILED`), optional
+`providerMessageId`, and ISO-8601 `eventTimestamp`. Event IDs are replay-protected;
+stale/out-of-order callbacks cannot regress delivery state. Secrets must be shared with
+the workflow through a secret manager, and service-to-service traffic must use HTTPS.
+Configure and test these n8n workflow steps before enabling the integration.
+
+Migration `V3__create_feedback_foundation.sql` adds the question, invitation,
+conversation, feedback, answer, outbox, and callback-idempotency tables. Tenant-consistent
+composite foreign keys protect business boundaries in the database; Hibernate remains
+in `validate` mode.
+
 ### Phone protection and database migration
 
 `PHONE_ENCRYPTION_KEY` must be a Base64 encoding of exactly 32 random bytes. It is used
@@ -203,8 +281,9 @@ the container-backed integration test class. Unit tests run without Docker.
 - Configure a production SMTP provider and delivery monitoring.
 - Configure and verify the Google OAuth client ID and allowed OAuth origins.
 - Use HTTPS, secure cookies, managed secret storage, and production database credentials.
-- Add shared/distributed rate limiting for registration and OTP endpoints before scaling;
-  this implementation enforces OTP attempts and per-account resend cooldown only.
+- Add shared/distributed rate limiting for public feedback, registration, and OTP endpoints
+  before scaling; feedback limiting is currently per instance, and OTP attempts plus
+  per-account resend cooldown are enforced locally.
 - Configure deployment, backups, monitoring, alerting, and operational incident procedures.
 - Provision and rotate the dedicated phone encryption and HMAC secrets; implement a
   reviewed key-rotation procedure before changing the active encryption key.

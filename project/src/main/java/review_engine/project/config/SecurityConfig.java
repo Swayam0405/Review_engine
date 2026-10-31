@@ -118,7 +118,8 @@ public class SecurityConfig {
         configuration.setAllowedOrigins(Arrays.stream(origins.split(","))
                 .map(String::trim).filter(origin -> !origin.isEmpty()).toList());
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
-        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-XSRF-TOKEN"));
+        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-XSRF-TOKEN",
+                "X-Internal-Api-Key", "X-Webhook-Secret"));
         configuration.setExposedHeaders(List.of("Set-Cookie"));
         configuration.setAllowCredentials(true);
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
@@ -147,6 +148,8 @@ public class SecurityConfig {
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers("/api/auth/register", "/api/auth/verify-email", "/api/auth/resend-otp",
                                 "/api/auth/login", "/api/auth/google", "/api/auth/refresh", "/api/auth/logout",
+                                "/api/public/feedback/**", "/api/internal/webhooks/whatsapp/delivery",
+                                "/api/internal/feedback-requests/*/delivery",
                                 "/actuator/health")
                         .permitAll()
                         .anyRequest().authenticated())

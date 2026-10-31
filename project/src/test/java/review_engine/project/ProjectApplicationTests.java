@@ -67,6 +67,8 @@ class ProjectApplicationTests {
                 () -> java.util.Base64.getEncoder().encodeToString("integration-phone-hmac-key-material!".getBytes(
                         java.nio.charset.StandardCharsets.UTF_8)));
         registry.add("app.customer.phone.default-region", () -> "ZZ");
+        registry.add("review-engine.feedback.token-secret",
+                () -> "integration-feedback-token-secret-at-least-thirty-two-bytes");
     }
 
     @Autowired
