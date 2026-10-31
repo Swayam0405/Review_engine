@@ -4,6 +4,8 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.FieldError;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -41,6 +43,17 @@ public class GlobalExceptionHandler {
         String message = fieldError == null ? "Request validation failed."
                 : "Invalid value for field: " + fieldError.getField() + ".";
         return ResponseEntity.badRequest().body(ApiResponse.error(message));
+    }
+
+    /**
+     * Converts malformed JSON, UUIDs, timestamps, and query parameter values into safe client errors.
+     *
+     * @param exception request parsing or type-conversion failure
+     * @return bad-request response without input values or parser details
+     */
+    @ExceptionHandler({HttpMessageNotReadableException.class, MethodArgumentTypeMismatchException.class})
+    public ResponseEntity<ApiResponse<Void>> handleRequestParsing(Exception exception) {
+        return ResponseEntity.badRequest().body(ApiResponse.error("Request contains an invalid value or format."));
     }
 
     /**

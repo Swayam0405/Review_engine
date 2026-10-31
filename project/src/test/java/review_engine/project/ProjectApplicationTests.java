@@ -12,6 +12,11 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
+import org.springframework.security.oauth2.jwt.JwtClaimsSet;
+import org.springframework.security.oauth2.jwt.JwtEncoder;
+import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
+import org.springframework.security.oauth2.jwt.JwsHeader;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -20,6 +25,7 @@ import review_engine.project.service.auth.EmailService;
 import java.util.UUID;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.OffsetDateTime;
 
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.emptyOrNullString;
@@ -28,6 +34,7 @@ import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.cookie;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -54,6 +61,12 @@ class ProjectApplicationTests {
         registry.add("app.security.google.client-id", () -> "review-engine-test-client");
         registry.add("app.security.cookie.secure", () -> "false");
         registry.add("app.email.dev-return-otp", () -> "true");
+        registry.add("app.customer.phone.encryption-key",
+                () -> java.util.Base64.getEncoder().encodeToString(new byte[32]));
+        registry.add("app.customer.phone.hmac-key",
+                () -> java.util.Base64.getEncoder().encodeToString("integration-phone-hmac-key-material!".getBytes(
+                        java.nio.charset.StandardCharsets.UTF_8)));
+        registry.add("app.customer.phone.default-region", () -> "ZZ");
     }
 
     @Autowired
@@ -61,6 +74,9 @@ class ProjectApplicationTests {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private JwtEncoder jwtEncoder;
 
     @MockitoBean
     private EmailService emailService;
@@ -230,6 +246,206 @@ class ProjectApplicationTests {
                         values (?, ?, ?, ?, ?, ?, ?, ?)
                         """, UUID.randomUUID(), userId, "Duplicate", "Retail", "Address", "UTC", now, now));
         org.junit.jupiter.api.Assertions.assertNotNull(emailIdentityId);
+        org.junit.jupiter.api.Assertions.assertEquals(1, jdbcTemplate.queryForObject(
+                "select count(*) from flyway_schema_history where version = '2' and success", Integer.class));
+    }
+
+    /**
+     * Exercises customer management, transaction recording, database scoping, and the bearer filter chain.
+     *
+     * @throws Exception if a mock HTTP request fails
+     */
+    @Test
+    void shouldCompleteOwnerScopedCustomerAndTransactionWorkflow() throws Exception {
+        UUID ownerA = insertUser("owner-a-" + UUID.randomUUID() + "@example.test");
+        UUID ownerB = insertUser("owner-b-" + UUID.randomUUID() + "@example.test");
+        UUID businessA = insertBusiness(ownerA, "Owner A");
+        UUID businessB = insertBusiness(ownerB, "Owner B");
+        String tokenA = accessToken(ownerA);
+        String tokenB = accessToken(ownerB);
+        String phoneA = "+14155552671";
+        String customerBody = """
+                {"name":"  Alice A  ","phone":"%s","businessId":"%s","ownerUserId":"%s"}
+                """.formatted(phoneA, businessB, ownerB);
+
+        mockMvc.perform(post("/api/customers")
+                        .contentType(MediaType.APPLICATION_JSON).content(customerBody))
+                .andExpect(status().isUnauthorized());
+
+        var createA = mockMvc.perform(post("/api/customers")
+                        .header("Authorization", "Bearer " + tokenA)
+                        .contentType(MediaType.APPLICATION_JSON).content(customerBody))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.name").value("Alice A"))
+                .andExpect(jsonPath("$.data.phone").value(phoneA))
+                .andExpect(jsonPath("$.data.phoneEncrypted").doesNotExist())
+                .andExpect(jsonPath("$.data.phoneLookupHash").doesNotExist())
+                .andReturn();
+        String customerA = com.jayway.jsonpath.JsonPath.read(
+                createA.getResponse().getContentAsString(), "$.data.id");
+        String storedCiphertext = jdbcTemplate.queryForObject(
+                "select phone_encrypted from customers where id = cast(? as uuid)", String.class, customerA);
+        String storedHash = jdbcTemplate.queryForObject(
+                "select phone_lookup_hash from customers where id = cast(? as uuid)", String.class, customerA);
+        org.junit.jupiter.api.Assertions.assertTrue(storedCiphertext.startsWith("v1:"));
+        org.junit.jupiter.api.Assertions.assertNotEquals(phoneA, storedCiphertext);
+        org.junit.jupiter.api.Assertions.assertEquals(64, storedHash.length());
+        org.junit.jupiter.api.Assertions.assertEquals(businessA, jdbcTemplate.queryForObject(
+                "select business_id from customers where id = cast(? as uuid)", UUID.class, customerA));
+
+        mockMvc.perform(post("/api/customers")
+                        .header("Authorization", "Bearer " + tokenA)
+                        .contentType(MediaType.APPLICATION_JSON).content(customerBody))
+                .andExpect(status().isConflict());
+        mockMvc.perform(post("/api/customers")
+                        .header("Authorization", "Bearer " + tokenB)
+                        .contentType(MediaType.APPLICATION_JSON).content(customerBody))
+                .andExpect(status().isCreated());
+
+        String customerBody2 = """
+                {"name":"Alice Second","phone":"+14155552672"}
+                """;
+        mockMvc.perform(post("/api/customers")
+                        .header("Authorization", "Bearer " + tokenA)
+                        .contentType(MediaType.APPLICATION_JSON).content(customerBody2))
+                .andExpect(status().isCreated());
+        mockMvc.perform(get("/api/customers")
+                        .header("Authorization", "Bearer " + tokenA)
+                        .param("name", "Alice").param("page", "0").param("size", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content.length()").value(1))
+                .andExpect(jsonPath("$.data.content[0].phone").doesNotExist())
+                .andExpect(jsonPath("$.data.totalElements").value(2))
+                .andExpect(jsonPath("$.data.hasNext").value(true));
+        mockMvc.perform(get("/api/customers/" + customerA).header("Authorization", "Bearer " + tokenB))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(put("/api/customers/" + customerA)
+                        .header("Authorization", "Bearer " + tokenB)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Hijack\",\"phone\":\"+14155552673\"}"))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/customers/" + customerA).header("Authorization", "Bearer " + tokenA))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.phone").value(phoneA));
+        mockMvc.perform(put("/api/customers/" + customerA)
+                        .header("Authorization", "Bearer " + tokenA)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Alice Updated\",\"phone\":\"+14155552673\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.name").value("Alice Updated"))
+                .andExpect(jsonPath("$.data.phone").value("+14155552673"));
+        mockMvc.perform(post("/api/customers")
+                        .header("Authorization", "Bearer " + tokenA)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"  \",\"phone\":\"+14155552674\"}"))
+                .andExpect(status().isBadRequest());
+
+        String transactionBody = """
+                {"customerId":"%s","referenceCode":"ORD-2026-001","status":"PENDING","businessId":"%s"}
+                """.formatted(customerA, businessB);
+        mockMvc.perform(post("/api/transactions")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"customerId\":\"" + customerA + "\"}"))
+                .andExpect(status().isUnauthorized());
+        var createTransaction = mockMvc.perform(post("/api/transactions")
+                        .header("Authorization", "Bearer " + tokenA)
+                        .contentType(MediaType.APPLICATION_JSON).content(transactionBody))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.status").value("COMPLETED"))
+                .andExpect(jsonPath("$.data.completedAt").exists())
+                .andReturn();
+        String transactionId = com.jayway.jsonpath.JsonPath.read(
+                createTransaction.getResponse().getContentAsString(), "$.data.id");
+        org.junit.jupiter.api.Assertions.assertEquals(businessA, jdbcTemplate.queryForObject(
+                "select business_id from transactions where id = cast(? as uuid)", UUID.class, transactionId));
+        mockMvc.perform(post("/api/transactions")
+                        .header("Authorization", "Bearer " + tokenA)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"customerId\":\"%s\"}".formatted(customerA)))
+                .andExpect(status().isCreated());
+        mockMvc.perform(post("/api/transactions")
+                        .header("Authorization", "Bearer " + tokenA)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"customerId\":\"%s\",\"referenceCode\":\"ORD-2026-001\"}".formatted(customerA)))
+                .andExpect(status().isConflict());
+        mockMvc.perform(post("/api/transactions")
+                        .header("Authorization", "Bearer " + tokenB)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"customerId\":\"%s\"}".formatted(customerA)))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/transactions/" + transactionId).header("Authorization", "Bearer " + tokenB))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/transactions/" + transactionId).header("Authorization", "Bearer " + tokenA))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.customerId").value(customerA));
+        mockMvc.perform(get("/api/transactions")
+                        .header("Authorization", "Bearer " + tokenA)
+                        .param("customerId", customerA).param("page", "0").param("size", "1")
+                        .param("status", "COMPLETED"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.totalElements").value(2))
+                .andExpect(jsonPath("$.data.hasNext").value(true));
+        mockMvc.perform(get("/api/transactions")
+                        .header("Authorization", "Bearer " + tokenA)
+                        .param("from", OffsetDateTime.now().minusDays(1).toString())
+                        .param("to", OffsetDateTime.now().plusDays(1).toString())
+                        .param("referenceCode", "ORD-2026"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.totalElements").value(1));
+
+        String future = OffsetDateTime.now().plusMinutes(6).toString();
+        mockMvc.perform(post("/api/transactions")
+                        .header("Authorization", "Bearer " + tokenA)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"customerId\":\"%s\",\"completedAt\":\"%s\"}".formatted(customerA, future)))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/transactions")
+                        .header("Authorization", "Bearer " + tokenA)
+                        .param("from", "2026-11-02T00:00:00Z").param("to", "2026-11-01T00:00:00Z"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/transactions")
+                        .header("Authorization", "Bearer " + tokenA).param("status", "PENDING"))
+                .andExpect(status().isBadRequest());
+    }
+
+    /**
+     * Confirms PostgreSQL enforces tenant-consistent relationships and nullable reference uniqueness.
+     */
+    @Test
+    void shouldEnforceCustomerTransactionConstraintsAndIndexesInPostgres() {
+        UUID ownerA = insertUser("constraints-a-" + UUID.randomUUID() + "@example.test");
+        UUID ownerB = insertUser("constraints-b-" + UUID.randomUUID() + "@example.test");
+        UUID businessA = insertBusiness(ownerA, "Constraints A");
+        UUID businessB = insertBusiness(ownerB, "Constraints B");
+        UUID customerA = insertCustomer(businessA, "a".repeat(64));
+        UUID customerB = insertCustomer(businessB, "a".repeat(64));
+        Timestamp now = Timestamp.from(Instant.now());
+
+        org.junit.jupiter.api.Assertions.assertNotEquals(customerA, customerB);
+        org.junit.jupiter.api.Assertions.assertThrows(DataIntegrityViolationException.class,
+                () -> insertCustomer(businessA, "a".repeat(64)));
+        org.junit.jupiter.api.Assertions.assertThrows(DataIntegrityViolationException.class,
+                () -> insertCustomer(UUID.randomUUID(), UUID.randomUUID().toString().replace("-", "")));
+        insertTransaction(businessA, customerA, null, now);
+        insertTransaction(businessA, customerA, null, now);
+        insertTransaction(businessA, customerA, "REF-DB-1", now);
+        org.junit.jupiter.api.Assertions.assertThrows(DataIntegrityViolationException.class,
+                () -> insertTransaction(businessA, customerA, "REF-DB-1", now));
+        org.junit.jupiter.api.Assertions.assertThrows(DataIntegrityViolationException.class,
+                () -> insertTransaction(businessB, customerA, null, now));
+        org.junit.jupiter.api.Assertions.assertThrows(DataIntegrityViolationException.class,
+                () -> insertTransaction(UUID.randomUUID(), customerA, null, now));
+        org.junit.jupiter.api.Assertions.assertThrows(DataIntegrityViolationException.class,
+                () -> insertTransaction(businessA, customerA, "BAD-STATUS", now, "PENDING"));
+
+        Integer indexCount = jdbcTemplate.queryForObject("""
+                select count(*) from pg_indexes
+                where schemaname = current_schema()
+                  and indexname in ('ix_customers_business_created', 'ix_customers_business_name',
+                                    'ix_transactions_business_completed', 'ix_transactions_customer_completed',
+                                    'uk_transactions_business_reference')
+                """, Integer.class);
+        org.junit.jupiter.api.Assertions.assertEquals(5, indexCount);
     }
 
     /**
@@ -269,6 +485,52 @@ class ProjectApplicationTests {
                 values (?, ?, ?, 'ACTIVE', ?, ?)
                 """, id, "Test User", email, now, now);
         return id;
+    }
+
+    private UUID insertBusiness(UUID ownerId, String name) {
+        UUID id = UUID.randomUUID();
+        Timestamp now = Timestamp.from(Instant.now());
+        jdbcTemplate.update("""
+                insert into businesses(id, owner_user_id, name, category, address, timezone, created_at, updated_at)
+                values (?, ?, ?, 'Retail', 'Test address', 'UTC', ?, ?)
+                """, id, ownerId, name, now, now);
+        return id;
+    }
+
+    private UUID insertCustomer(UUID businessId, String hash) {
+        UUID id = UUID.randomUUID();
+        Timestamp now = Timestamp.from(Instant.now());
+        jdbcTemplate.update("""
+                insert into customers(id, business_id, name, phone_encrypted, phone_lookup_hash, created_at, updated_at)
+                values (?, ?, 'Constraint Customer', 'v1:test:test', ?, ?, ?)
+                """, id, businessId, hash, now, now);
+        return id;
+    }
+
+    private void insertTransaction(UUID businessId, UUID customerId, String referenceCode, Timestamp now) {
+        insertTransaction(businessId, customerId, referenceCode, now, "COMPLETED");
+    }
+
+    private void insertTransaction(UUID businessId, UUID customerId, String referenceCode, Timestamp now,
+                                  String status) {
+        jdbcTemplate.update("""
+                insert into transactions(id, business_id, customer_id, reference_code, status,
+                                         completed_at, created_at, updated_at)
+                values (?, ?, ?, ?, ?, ?, ?, ?)
+                """, UUID.randomUUID(), businessId, customerId, referenceCode, status, now, now, now);
+    }
+
+    private String accessToken(UUID userId) {
+        Instant now = Instant.now();
+        JwtClaimsSet claims = JwtClaimsSet.builder()
+                .issuer("review-engine")
+                .subject(userId.toString())
+                .issuedAt(now)
+                .expiresAt(now.plusSeconds(600))
+                .claim("token_type", "access")
+                .build();
+        return jwtEncoder.encode(JwtEncoderParameters.from(
+                JwsHeader.with(MacAlgorithm.HS256).build(), claims)).getTokenValue();
     }
 
     private UUID insertIdentity(UUID userId, String provider, String subject, String passwordHash) {
