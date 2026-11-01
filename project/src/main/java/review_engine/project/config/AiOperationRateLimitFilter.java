@@ -41,6 +41,7 @@ public class AiOperationRateLimitFilter extends OncePerRequestFilter {
         }
         String path = request.getServletPath();
         return !"/api/insights/summary/generate".equals(path)
+                && !"/api/dashboard/summary/generate".equals(path)
                 && !(path.matches("/api/google-reviews/[0-9a-fA-F-]{36}/response-drafts"));
     }
 

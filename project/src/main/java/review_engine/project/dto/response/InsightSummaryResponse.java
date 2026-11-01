@@ -10,6 +10,6 @@ import java.util.UUID;
  */
 public record InsightSummaryResponse(UUID id, Instant from, Instant to, String summary, JsonNode positiveHighlights,
                                      JsonNode negativeHighlights, JsonNode recurringIssues,
-                                     JsonNode recommendations, int feedbackCount,
+                                     JsonNode recommendations, int feedbackCount, int analyzedFeedbackCount,
                                      Instant latestFeedbackAt, Instant generatedAt) {
 }

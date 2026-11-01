@@ -1,6 +1,8 @@
 package review_engine.project.service;
 
 import org.springframework.http.HttpStatus;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import review_engine.project.dto.request.FeedbackAnswerRequest;
@@ -39,6 +41,7 @@ import java.util.stream.Collectors;
  */
 @Service
 public class FeedbackSubmissionService {
+    private static final Logger LOGGER = LoggerFactory.getLogger(FeedbackSubmissionService.class);
     private final FeedbackRequestService requestService;
     private final FeedbackConversationService conversationService;
     private final FeedbackQuestionRepository questionRepository;
@@ -146,7 +149,19 @@ public class FeedbackSubmissionService {
         conversation.setCompletedAt(now);
         request.setStatus(FeedbackRequestStatus.COMPLETED);
         request.setCompletedAt(now);
-        return new FeedbackConfirmationResponse(true, "Thank you. Your feedback has been received.");
+        String configuredReviewUrl = request.getBusiness().getGoogleReviewUrl();
+        boolean reviewAvailable = GoogleReviewUrlValidator.isValid(configuredReviewUrl);
+        if (configuredReviewUrl != null && !configuredReviewUrl.isBlank() && !reviewAvailable) {
+            LOGGER.warn("Business {} has an invalid configured Google review URL; feedback completed without a link.",
+                    request.getBusiness().getId());
+        }
+        String completionMessage = "Thank you. Your feedback has been received.";
+        String invitation = reviewAvailable
+                ? "If you would like to share your experience publicly, you can leave an optional Google review."
+                : null;
+        return new FeedbackConfirmationResponse(true, completionMessage, true, true, completionMessage,
+                reviewAvailable, reviewAvailable ? GoogleReviewUrlValidator.validate(configuredReviewUrl) : null,
+                invitation);
     }
 
     private void validateAnswer(FeedbackQuestion question, FeedbackAnswerRequest answer) {

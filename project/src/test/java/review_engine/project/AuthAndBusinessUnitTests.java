@@ -178,7 +178,7 @@ class AuthAndBusinessUnitTests {
         when(users.findById(ownerId)).thenReturn(Optional.of(owner));
         when(businesses.save(any(Business.class))).thenAnswer(invocation -> invocation.getArgument(0));
         var request = new review_engine.project.dto.request.BusinessRequest(
-                "Cafe", "Restaurant", "Main Street", "UTC", "https://g.page/r/example");
+                "Cafe", "Restaurant", "Main Street", "UTC", "https://g.page/r/example/review");
 
         new BusinessService(businesses, users).create(ownerId, request);
 

@@ -1,7 +1,10 @@
 package review_engine.project.dto.response;
 
 /**
- * Minimal confirmation returned after a successful public feedback submission.
+ * Customer-safe confirmation; Google review facilitation is optional and unconditional on rating.
  */
-public record FeedbackConfirmationResponse(boolean received, String message) {
+public record FeedbackConfirmationResponse(boolean received, String message, boolean feedbackCompleted,
+                                           boolean conversationCompleted, String completionMessage,
+                                           boolean googleReviewAvailable, String googleReviewUrl,
+                                           String reviewInvitationMessage) {
 }

@@ -34,7 +34,8 @@ public class InsightSummaryPersistenceService {
 
     @Transactional
     public InsightSummary save(UUID businessId, Instant from, Instant to, InsightSummaryResult result,
-                              int feedbackCount, Instant latestFeedbackAt, String provider, String model) {
+                              int feedbackCount, int analyzedFeedbackCount, Instant latestFeedbackAt,
+                              String provider, String model) {
         var business = businessRepository.findById(businessId)
                 .orElseThrow(() -> new IllegalStateException("Business disappeared during summary generation."));
         InsightSummary summary = repository.findForUpdate(businessId, from, to).orElseGet(InsightSummary::new);
@@ -47,6 +48,7 @@ public class InsightSummaryPersistenceService {
         summary.setRecurringIssues(json(result.recurringIssues()));
         summary.setRecommendations(json(result.recommendations()));
         summary.setFeedbackCount(feedbackCount);
+        summary.setAnalyzedFeedbackCount(analyzedFeedbackCount);
         summary.setLatestFeedbackAt(latestFeedbackAt);
         summary.setAiProvider(provider);
         summary.setAiModel(model);

@@ -55,6 +55,10 @@ commit real credentials or secret values.
 | `AI_MAX_ANALYSIS_BATCH` | No | Maximum analyzed-feedback samples included in summary context; defaults to `20` |
 | `AI_RATE_LIMIT_PER_MINUTE` | No | Per-IP limit for summary generation and review-draft generation per application instance; defaults to `10` |
 | `AI_WORKER_INTERVAL` | No | Feedback-analysis outbox poll interval; defaults to `5s` |
+| `DASHBOARD_DEFAULT_PERIOD_DAYS` | No | Dashboard and summary default period; defaults to `30` |
+| `DASHBOARD_MAX_DATE_RANGE_DAYS` | No | Maximum inclusive period width accepted by analytics; defaults to `366` |
+| `DASHBOARD_RECURRING_ISSUE_MIN_FEEDBACK_COUNT` | No | Minimum distinct analyzed feedback records before an issue is called recurring; defaults to `2` |
+| `DASHBOARD_DEFAULT_RESULT_LIMIT` | No | Default topic/aspect/issue/highlight result limit; defaults to `20` |
 
 Spring Boot Mail also reads standard `SPRING_MAIL_HOST`, `SPRING_MAIL_PORT`,
 `SPRING_MAIL_USERNAME`, `SPRING_MAIL_PASSWORD` and `SPRING_MAIL_PROPERTIES_*` settings.
@@ -134,9 +138,9 @@ Errors use the same structure with `success: false`, a safe message, and `data: 
 | `PUT /api/business/me` | Same profile fields as create | Bearer access JWT | Updates permitted business fields |
 | `PATCH /api/business/me/google-review-url` | `{"googleReviewUrl":"https://..."}` | Bearer access JWT | Updates only the review URL |
 
-Business timezones must be valid IANA zone IDs. Review URLs must be absolute HTTPS URLs
-with a host and without user-info. The backend does not claim that a review URL is
-verified by Google.
+Business timezones must be valid IANA zone IDs. Google review URLs must use HTTPS and a
+supported Google review destination; the backend validates the host/path but does not
+verify that the configured URL belongs to the business through Google's APIs.
 
 ## Customer and transaction management
 
@@ -319,6 +323,104 @@ tables without changing V1. It enforces unique customer phone hashes per busines
 unique non-null transaction references per business, completed-only transaction status,
 foreign keys, and a composite customer/business foreign key that prevents cross-business
 transactions. Hibernate remains in `validate` mode.
+
+## Phase 6 — Dashboard and Google Review Flow
+
+### Dashboard architecture and calculations
+
+Dashboard endpoints resolve the business only from the authenticated JWT owner. They
+reuse the Phase 5 PostgreSQL insight aggregates, persisted feedback analyses, and cached
+summary implementation. Rating metrics come directly from completed private feedback;
+sentiment, topic, aspect, issue, and highlight metrics include successfully analyzed
+records only. Unanalyzed feedback is reported separately as pending or failed rather than
+being treated as neutral. Google reviews are separate public records and are not included
+in private feedback metrics.
+
+Dashboard time filters are ISO-8601 instants in UTC, use a start-inclusive/end-exclusive
+range, and default to the preceding 30 days. The maximum range defaults to 366 days.
+The overview returns rating percentages over all completed feedback and sentiment
+percentages over analyzed feedback. Its comparison uses the immediately preceding
+equal-duration interval; it is omitted if that interval has no feedback. Trend buckets
+are daily, ISO-weekly (Monday UTC start), or monthly, and missing buckets are returned
+with zero counts. Topic/aspect mentions and issue reports count distinct feedback records.
+An issue is called recurring only after the configured minimum number of distinct
+feedback reports (default two); severity remains the AI-assigned severity and is not
+inferred from sentiment. Activity counts use request/conversation lifecycle state and
+creation timestamps, while analysis counts use the feedback submission period.
+
+### Dashboard APIs
+
+All endpoints below require the owner's bearer JWT, derive the business from the JWT
+subject, and return the standard `ApiResponse` envelope. Optional `from` and `to` query
+parameters accept ISO-8601 instants. Invalid ranges, enum filters, or limits return a
+safe `400`; missing business onboarding returns `404`; another business's data is never
+selected.
+
+| Method and path | Optional query | Response data |
+| --- | --- | --- |
+| `GET /api/dashboard/overview` | `from`, `to` | Period, completed feedback count and average rating, rating counts/percentages, sentiment counts/percentages, analysis coverage, and previous-period comparison when available |
+| `GET /api/dashboard/trends` | `from`, `to`, `interval` (`DAILY`, `WEEKLY`, `MONTHLY`; default `DAILY`) | Time buckets with start/end, feedback count, average rating, analyzed sentiment counts, and analysis coverage |
+| `GET /api/dashboard/topics` | `from`, `to`, `limit` (default `20`, max `100`), `sentiment` | Normalized topic, distinct feedback mentions, sentiment breakdown, and percentage of analyzed feedback |
+| `GET /api/dashboard/aspects` | `from`, `to`, `limit` (default `20`, max `100`) | Aspect name, distinct mentions, sentiment breakdown, average analysis confidence, and period |
+| `GET /api/dashboard/issues` | `from`, `to`, `limit` (default `20`, max `100`), `severity` (`LOW`, `MEDIUM`, `HIGH`) | Recurring issue, distinct reports, configured severity distribution, related topics, first/latest report times, and sentiment breakdown |
+| `GET /api/dashboard/highlights` | `from`, `to`, `limit` (default `20`, max `100`) | Separate positive and negative aspect observations with grounded explanation and distinct supporting-feedback count |
+| `GET /api/dashboard/summary` | `from`, `to` | Persisted AI summary, observations, concerns, recommendations, period/count metadata, and analysis coverage; `404` if no summary exists |
+| `POST /api/dashboard/summary/generate` | `from`, `to`, `force` (default `false`) | Creates or refreshes the cached evidence-grounded summary; requires at least three analyzed feedback records |
+| `GET /api/dashboard/activity` | `from`, `to` | Request lifecycle, conversation status, and pending/failed analysis counts |
+
+Summary generation reuses Phase 5's AI provider and deterministic metrics. The cache is
+keyed by exact business/date range and is reused only while feedback and analyzed-record
+counts, latest feedback time, and cooldown remain current. A database-backed lease
+prevents concurrent generation for the same business/period across application instances.
+AI provider errors return a safe `503` from summary generation; dashboard metrics do not
+depend on summary availability. Migration `V5__dashboard_summary_generation_guard.sql`
+adds the cache freshness count and generation lease table; Hibernate remains in `validate`
+mode.
+
+### Google Review facilitation and independent flows
+
+Owners configure the review link through the existing
+`PATCH /api/business/me/google-review-url` request body
+`{"googleReviewUrl":"https://..."}`. A link is optional. Configured URLs must use HTTPS
+and match a supported Google review destination (Google Maps review/place URL, Google
+local write-review URL with a place ID, `g.page` review URL, or supported Google Maps
+short link); arbitrary hosts, unsafe schemes, user-info, and nonstandard ports are
+rejected. Copy the review URL from the business's Google profile. URL validation checks
+the destination host/path but does not verify business ownership with Google.
+
+After `POST /api/public/feedback/{token}/submit` succeeds, the existing confirmation data
+also includes `feedbackCompleted`, `conversationCompleted`, `completionMessage`,
+`googleReviewAvailable`, `googleReviewUrl`, and `reviewInvitationMessage`. The link is
+included independent of rating or sentiment; absent configuration returns
+`googleReviewAvailable: false` while still confirming completion. The customer is invited
+to post a voluntary, genuine public review. Completion creates only private feedback and
+its internal analysis outbox job; it does not wait for AI, record a link click, or create
+a `GoogleReview`.
+
+The authenticated owner QR endpoint `GET /api/business/me/google-review-qr` returns a
+private, no-store `image/png` generated on demand from the configured review URL alone.
+It encodes no feedback token or customer data. No separate QR file is persisted.
+
+The two flows remain independent:
+
+- **Internal:** completed private feedback → asynchronous analysis → dashboard metrics.
+- **Google:** completed feedback → configured review link/QR → customer's independent
+  decision whether to post a public review.
+
+Ignoring the link does not affect internal analysis. AI failure does not block feedback
+completion or link display. An actual `GoogleReview` record must come from a verified,
+authorized import; this release has no Google Business Profile synchronization or reply
+publishing integration, and does not fabricate Google review metrics.
+
+### Phase 6 testing
+
+Run all unit tests and the application verification from the `project` directory using
+`.\mvnw.cmd clean verify`. Focused dashboard and URL/QR/feedback-flow tests can be run
+with `.\mvnw.cmd "-Dtest=DashboardServiceTests,GoogleReviewFlowTests" test`. PostgreSQL
+schema and MockMvc integration tests require Docker through Testcontainers; they are
+skipped when Docker is unavailable. QR generation tests decode the PNG and compare its
+payload with the configured URL. Configure an owner's Google URL with the PATCH endpoint
+before requesting the QR or expecting a link in the completion response.
 
 Run the backend and tests from the `project` directory:
 

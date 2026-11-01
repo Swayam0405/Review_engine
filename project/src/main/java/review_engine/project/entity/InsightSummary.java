@@ -65,6 +65,9 @@ public class InsightSummary {
     @Column(name = "feedback_count", nullable = false)
     private int feedbackCount;
 
+    @Column(name = "analyzed_feedback_count", nullable = false)
+    private int analyzedFeedbackCount;
+
     @Column(name = "latest_feedback_at")
     private Instant latestFeedbackAt;
 

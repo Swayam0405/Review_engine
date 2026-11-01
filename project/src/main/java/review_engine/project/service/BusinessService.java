@@ -11,7 +11,6 @@ import review_engine.project.exception.ApiException;
 import review_engine.project.repository.BusinessRepository;
 import review_engine.project.repository.UserRepository;
 
-import java.net.URI;
 import java.time.ZoneId;
 import java.util.UUID;
 
@@ -112,19 +111,7 @@ public class BusinessService {
     }
 
     private String validateReviewUrl(String value) {
-        if (value == null || value.isBlank()) {
-            return null;
-        }
-        try {
-            URI uri = URI.create(value.trim());
-            if (!uri.isAbsolute() || !"https".equalsIgnoreCase(uri.getScheme())
-                    || uri.getHost() == null || uri.getUserInfo() != null) {
-                throw new IllegalArgumentException("Unsafe URL.");
-            }
-            return uri.toASCIIString();
-        } catch (IllegalArgumentException exception) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "Google review URL must be a valid HTTPS URL.");
-        }
+        return GoogleReviewUrlValidator.validate(value);
     }
 
     private BusinessResponse toResponse(Business business) {

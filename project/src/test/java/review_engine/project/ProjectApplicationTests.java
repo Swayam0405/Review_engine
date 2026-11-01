@@ -34,6 +34,7 @@ import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.cookie;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -100,10 +101,25 @@ class ProjectApplicationTests {
                                      'google_reviews', 'review_response_drafts')
                 """, Integer.class);
         org.junit.jupiter.api.Assertions.assertEquals(4, aiTableCount);
+        Integer dashboardLockTableCount = jdbcTemplate.queryForObject("""
+                select count(*) from information_schema.tables
+                where table_name = 'insight_summary_generation_locks'
+                """, Integer.class);
+        org.junit.jupiter.api.Assertions.assertEquals(1, dashboardLockTableCount);
+        Integer analyzedCountColumn = jdbcTemplate.queryForObject("""
+                select count(*) from information_schema.columns
+                where table_name = 'insight_summaries' and column_name = 'analyzed_feedback_count'
+                """, Integer.class);
+        org.junit.jupiter.api.Assertions.assertEquals(1, analyzedCountColumn);
 
         mockMvc.perform(get("/api/auth/me"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.success").value(false));
+        mockMvc.perform(get("/api/dashboard/overview"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.success").value(false));
+        mockMvc.perform(get("/api/business/me/google-review-qr"))
+                .andExpect(status().isUnauthorized());
     }
 
     /**
@@ -152,7 +168,7 @@ class ProjectApplicationTests {
         String userId = com.jayway.jsonpath.JsonPath.read(loginJson, "$.data.user.id");
         String businessRequest = """
                 {"name":"Test Cafe","category":"Cafe","address":"10 Main Street",
-                 "timezone":"America/New_York","googleReviewUrl":"https://g.page/r/example",
+                 "timezone":"America/New_York","googleReviewUrl":"https://g.page/r/example/review",
                  "ownerUserId":"%s"}
                 """.formatted(UUID.randomUUID());
         var businessResult = mockMvc.perform(post("/api/business")
@@ -414,6 +430,37 @@ class ProjectApplicationTests {
         mockMvc.perform(get("/api/transactions")
                         .header("Authorization", "Bearer " + tokenA).param("status", "PENDING"))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void dashboardAndReviewQrRemainScopedToTheAuthenticatedBusiness() throws Exception {
+        UUID ownerA = insertUser("dashboard-a-" + UUID.randomUUID() + "@example.test");
+        UUID ownerB = insertUser("dashboard-b-" + UUID.randomUUID() + "@example.test");
+        UUID businessA = insertBusiness(ownerA, "Dashboard A");
+        UUID businessB = insertBusiness(ownerB, "Dashboard B");
+        String tokenA = accessToken(ownerA);
+        String tokenB = accessToken(ownerB);
+
+        mockMvc.perform(patch("/api/business/me/google-review-url")
+                        .header("Authorization", "Bearer " + tokenB)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"googleReviewUrl\":\"https://g.page/r/owner-b/review\"}"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/dashboard/overview")
+                        .header("Authorization", "Bearer " + tokenA)
+                        .param("businessId", businessB.toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.feedbackMetrics.totalCompletedFeedback").value(0));
+        mockMvc.perform(get("/api/business/me/google-review-qr")
+                        .header("Authorization", "Bearer " + tokenA))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/business/me/google-review-qr")
+                        .header("Authorization", "Bearer " + tokenB))
+                .andExpect(status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content()
+                        .contentType(MediaType.IMAGE_PNG));
+        org.junit.jupiter.api.Assertions.assertNotEquals(businessA, businessB);
     }
 
     /**
