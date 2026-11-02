@@ -1,0 +1,389 @@
+@use "../../../styles/tokens" as tokens;
+
+.page {
+  min-height: 100vh;
+  padding: clamp(1rem, 4vw, 3rem);
+  background: tokens.$color-page;
+}
+
+.content {
+  display: grid;
+  width: min(100%, 78rem);
+  gap: 1.25rem;
+  margin: 0 auto;
+}
+
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.eyebrow {
+  margin: 0 0 0.5rem;
+  color: tokens.$color-accent;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.title {
+  margin: 0;
+  color: tokens.$color-ink;
+  font-size: clamp(1.9rem, 5vw, 2.7rem);
+  letter-spacing: -0.04em;
+}
+
+.description,
+.muted,
+.sectionDescription,
+.filterHelp {
+  color: tokens.$color-muted;
+  line-height: 1.55;
+}
+
+.description {
+  margin: 0.5rem 0 0;
+}
+
+.button,
+.secondaryButton {
+  display: inline-flex;
+  min-height: 2.8rem;
+  align-items: center;
+  justify-content: center;
+  padding: 0.6rem 1rem;
+  border: 1px solid transparent;
+  border-radius: 0.55rem;
+  background: tokens.$color-accent;
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 650;
+}
+
+.secondaryButton {
+  border-color: tokens.$color-border;
+  background: tokens.$color-surface;
+  color: tokens.$color-ink;
+}
+
+.button:focus-visible,
+.secondaryButton:focus-visible,
+.field input:focus-visible {
+  outline: 3px solid rgb(23 107 81 / 35%);
+  outline-offset: 2px;
+}
+
+.filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.8rem;
+  padding: 1rem;
+  border: 1px solid tokens.$color-border;
+  border-radius: 0.85rem;
+  background: tokens.$color-surface;
+}
+
+.filterHelp {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.field {
+  display: grid;
+  min-width: min(100%, 12rem);
+  gap: 0.35rem;
+  color: tokens.$color-ink;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.field input {
+  min-height: 2.7rem;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid tokens.$color-border;
+  border-radius: 0.5rem;
+  color: tokens.$color-ink;
+  background: tokens.$color-surface;
+  font: inherit;
+}
+
+.stack {
+  display: grid;
+  gap: 1rem;
+}
+
+.period,
+.disclaimer {
+  color: tokens.$color-muted;
+  font-size: 0.9rem;
+}
+
+.metricGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10.5rem, 1fr));
+  gap: 0.85rem;
+}
+
+.metricCard,
+.section {
+  min-width: 0;
+  padding: 1.1rem;
+  border: 1px solid tokens.$color-border;
+  border-radius: 0.85rem;
+  background: tokens.$color-surface;
+  box-shadow: 0 0.75rem 2rem rgb(24 48 36 / 5%);
+}
+
+.metricLabel {
+  margin: 0;
+  color: tokens.$color-muted;
+  font-size: 0.9rem;
+}
+
+.metricValue {
+  margin: 0.35rem 0 0;
+  color: tokens.$color-ink;
+  font-size: 1.65rem;
+  font-weight: 750;
+}
+
+.metricHint {
+  margin: 0.25rem 0 0;
+  color: tokens.$color-muted;
+  font-size: 0.8rem;
+}
+
+.twoColumn,
+.insightGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.sectionTitle {
+  margin: 0 0 0.75rem;
+  color: tokens.$color-ink;
+  font-size: 1.15rem;
+}
+
+.sectionDescription {
+  margin: -0.3rem 0 0.8rem;
+  font-size: 0.9rem;
+}
+
+.success {
+  margin: 0.5rem 0 0;
+  color: tokens.$color-accent;
+  font-size: 0.9rem;
+}
+
+.empty {
+  margin: 0;
+  padding: 0.65rem;
+  border-radius: 0.5rem;
+  background: tokens.$color-page;
+  color: tokens.$color-muted;
+  line-height: 1.5;
+}
+
+.dataList,
+.insightList,
+.textList {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.distributionRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 0.8rem;
+  padding: 0.65rem 0;
+  border-bottom: 1px solid tokens.$color-border;
+}
+
+.distributionRow:last-child {
+  border-bottom: 0;
+}
+
+.trendList {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.trendRow {
+  display: grid;
+  grid-template-columns: minmax(6rem, 0.8fr) minmax(4rem, 2fr) 2rem 5rem;
+  align-items: center;
+  gap: 0.7rem;
+  font-size: 0.88rem;
+}
+
+.trendDate,
+.trendRating {
+  color: tokens.$color-muted;
+}
+
+.trendTrack {
+  height: 0.7rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: tokens.$color-page;
+}
+
+.trendBar {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: tokens.$color-accent;
+}
+
+.trendCount {
+  text-align: right;
+  font-weight: 650;
+}
+
+.insightList {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr));
+}
+
+.insightCard {
+  display: grid;
+  min-width: 0;
+  gap: 0.45rem;
+  padding: 0.9rem;
+  border-radius: 0.65rem;
+  background: tokens.$color-page;
+  overflow-wrap: anywhere;
+}
+
+.insightCard p {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.insightCard small,
+.insightCard .muted {
+  color: tokens.$color-muted;
+}
+
+.insightTitle {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.4rem;
+}
+
+.summaryText {
+  margin: 0.75rem 0;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
+.disclaimer {
+  margin: 0;
+  padding: 0.75rem;
+  border-left: 3px solid tokens.$color-accent;
+  background: tokens.$color-page;
+  line-height: 1.55;
+}
+
+.summaryMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  color: tokens.$color-muted;
+  font-size: 0.85rem;
+}
+
+.summaryBlock {
+  display: grid;
+  align-content: start;
+  gap: 0.5rem;
+}
+
+.summaryBlock h3 {
+  margin: 0;
+  color: tokens.$color-ink;
+  font-size: 1rem;
+}
+
+.textList {
+  padding-left: 1.2rem;
+  list-style: disc;
+  line-height: 1.5;
+}
+
+.activityGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 0.55rem;
+}
+
+.activityItem {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.65rem;
+  border-radius: 0.5rem;
+  background: tokens.$color-page;
+}
+
+.skeleton {
+  height: 6rem;
+  border-radius: 0.75rem;
+  background: linear-gradient(
+    90deg,
+    tokens.$color-page 25%,
+    tokens.$color-border 50%,
+    tokens.$color-page 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+.error {
+  flex-basis: 100%;
+  margin: 0;
+  padding: 0.75rem;
+  border: 1px solid #f1b7b2;
+  border-radius: 0.55rem;
+  background: #fff6f5;
+  color: #b42318;
+}
+
+@keyframes shimmer {
+  to {
+    background-position-x: -200%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+  }
+}
+
+@media (max-width: 680px) {
+  .twoColumn,
+  .insightGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .trendRow {
+    grid-template-columns: minmax(5rem, 1fr) minmax(3rem, 1.5fr) 2rem;
+  }
+
+  .trendRating {
+    grid-column: 2 / -1;
+  }
+}

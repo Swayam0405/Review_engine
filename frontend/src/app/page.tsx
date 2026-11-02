@@ -1,23 +1,40 @@
+"use client";
+
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { useAuth } from "../features/auth/hooks/useAuth";
+import { getSafeReturnTo } from "../features/auth/utils/return-to";
 import styles from "./page.module.scss";
 
 export default function Home() {
+  const router = useRouter();
+  const { status, user } = useAuth();
+
+  useEffect(() => {
+    if (status === "initializing") return;
+    const params = new URLSearchParams(window.location.search);
+    const requested = getSafeReturnTo(params.get("returnTo"));
+    if (status === "unauthenticated") {
+      router.replace(
+        requested ? `/login?returnTo=${encodeURIComponent(requested)}` : "/login",
+      );
+      return;
+    }
+
+    const destination = user?.hasBusiness
+      ? requested ?? "/dashboard"
+      : requested
+        ? `/business/onboarding?returnTo=${encodeURIComponent(requested)}`
+        : "/business/onboarding";
+    router.replace(destination);
+  }, [router, status, user]);
+
   return (
     <main className={styles.page}>
-      <section className={styles.card} aria-labelledby="welcome-title">
-        <p className={styles.eyebrow}>Review Engine</p>
-        <h1 className={styles.title} id="welcome-title">
-          The frontend foundation is ready.
-        </h1>
-        <p className={styles.description}>
-          Phase 7 development can build on this Next.js application while
-          keeping customer feedback and review workflows connected to the
-          Spring Boot backend.
-        </p>
-        <p className={styles.status} role="status">
-          <span className={styles.statusIndicator} aria-hidden="true" />
-          Application scaffold ready
-        </p>
-      </section>
+      <p className={styles.status} role="status">
+        <span className={styles.statusIndicator} aria-hidden="true" />
+        Preparing your Review Engine workspace…
+      </p>
     </main>
   );
 }

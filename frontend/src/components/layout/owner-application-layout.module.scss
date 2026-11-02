@@ -1,0 +1,110 @@
+@use "../../styles/tokens" as tokens;
+
+.header {
+  display: flex;
+  min-height: 4.25rem;
+  align-items: center;
+  gap: 1.25rem;
+  padding: 0.65rem clamp(1rem, 3vw, 2.5rem);
+  border-bottom: 1px solid tokens.$color-border;
+  background: tokens.$color-surface;
+}
+
+.brand {
+  flex: 0 0 auto;
+  color: tokens.$color-accent;
+  font-weight: 750;
+  text-decoration: none;
+}
+
+.navigation {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  gap: 0.3rem;
+  overflow-x: auto;
+}
+
+.link,
+.activeLink {
+  display: inline-flex;
+  min-height: 2.6rem;
+  flex: 0 0 auto;
+  align-items: center;
+  padding: 0.45rem 0.65rem;
+  border-radius: 0.5rem;
+  color: tokens.$color-muted;
+  font-size: 0.88rem;
+  text-decoration: none;
+}
+
+.link:hover,
+.activeLink {
+  background: tokens.$color-page;
+  color: tokens.$color-accent;
+}
+
+.activeLink {
+  font-weight: 700;
+}
+
+.account {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.ownerName {
+  color: tokens.$color-muted;
+  font-size: 0.85rem;
+}
+
+.logout {
+  min-height: 2.5rem;
+  padding: 0.4rem 0.7rem;
+  border: 1px solid tokens.$color-border;
+  border-radius: 0.5rem;
+  background: tokens.$color-surface;
+  color: tokens.$color-ink;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.88rem;
+}
+
+.link:focus-visible,
+.activeLink:focus-visible,
+.brand:focus-visible,
+.logout:focus-visible {
+  outline: 3px solid rgb(23 107 81 / 35%);
+  outline-offset: 2px;
+}
+
+.logoutError {
+  margin: 0;
+  padding: 0.65rem 1rem;
+  background: #fff6f5;
+  color: #b42318;
+}
+
+@media (max-width: 860px) {
+  .header {
+    flex-wrap: wrap;
+    gap: 0.5rem 1rem;
+  }
+
+  .navigation {
+    order: 3;
+    flex-basis: 100%;
+  }
+
+  .account {
+    margin-left: auto;
+  }
+}
+
+@media (max-width: 420px) {
+  .ownerName {
+    display: none;
+  }
+}

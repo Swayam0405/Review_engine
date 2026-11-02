@@ -1,0 +1,190 @@
+@use "../../../styles/tokens" as tokens;
+
+.page {
+  min-height: 100vh;
+  padding: clamp(1rem, 5vw, 3rem);
+  background: tokens.$color-page;
+}
+
+.content {
+  width: min(100%, 54rem);
+  margin: 0 auto;
+}
+
+.card,
+.stateCard {
+  padding: clamp(1.25rem, 4vw, 2.5rem);
+  border: 1px solid tokens.$color-border;
+  border-radius: 1rem;
+  background: tokens.$color-surface;
+  box-shadow: 0 1.25rem 3rem rgb(24 48 36 / 7%);
+}
+
+.header {
+  margin-bottom: 1.5rem;
+}
+
+.eyebrow {
+  margin: 0 0 0.6rem;
+  color: tokens.$color-accent;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.title {
+  margin: 0;
+  color: tokens.$color-ink;
+  font-size: clamp(1.8rem, 5vw, 2.5rem);
+  letter-spacing: -0.04em;
+  line-height: 1.15;
+}
+
+.description,
+.muted {
+  color: tokens.$color-muted;
+  line-height: 1.65;
+}
+
+.form {
+  display: grid;
+  gap: 1rem;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.field {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.label {
+  font-size: 0.9rem;
+  font-weight: 650;
+}
+
+.input,
+.textarea {
+  width: 100%;
+  min-height: 2.9rem;
+  padding: 0.65rem 0.8rem;
+  border: 1px solid tokens.$color-border;
+  border-radius: 0.55rem;
+  color: tokens.$color-ink;
+  background: tokens.$color-surface;
+  font: inherit;
+}
+
+.textarea {
+  min-height: 6rem;
+  resize: vertical;
+}
+
+.input:focus-visible,
+.textarea:focus-visible,
+.button:focus-visible,
+.link:focus-visible {
+  outline: 3px solid rgb(23 107 81 / 35%);
+  outline-offset: 2px;
+}
+
+.invalid {
+  border-color: #b42318;
+}
+
+.fieldError,
+.error {
+  color: #b42318;
+  font-size: 0.875rem;
+}
+
+.error,
+.success,
+.notice {
+  margin: 0;
+  padding: 0.75rem 0.85rem;
+  border-radius: 0.55rem;
+  line-height: 1.5;
+}
+
+.error {
+  border: 1px solid #f1b7b2;
+  background: #fff6f5;
+}
+
+.success,
+.notice {
+  border: 1px solid #b6d7c7;
+  background: #f3faf6;
+  color: #15583f;
+}
+
+.button {
+  display: inline-flex;
+  min-height: 2.9rem;
+  align-items: center;
+  justify-content: center;
+  padding: 0.65rem 1rem;
+  border: 1px solid transparent;
+  border-radius: 0.55rem;
+  background: tokens.$color-accent;
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 650;
+}
+
+.button:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.link {
+  color: tokens.$color-accent;
+  font-weight: 650;
+  text-underline-offset: 0.15em;
+}
+
+.state {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 1.5rem;
+  color: tokens.$color-muted;
+}
+
+.stateCard {
+  width: min(100%, 34rem);
+}
+
+.section {
+  margin-top: 2rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid tokens.$color-border;
+}
+
+.qr {
+  display: block;
+  width: min(100%, 20rem);
+  height: auto;
+  border: 1px solid tokens.$color-border;
+  border-radius: 0.5rem;
+  background: #fff;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+@media (max-width: 600px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+}
