@@ -4,6 +4,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import review_engine.project.dto.response.ConversationMessageResponse;
+import review_engine.project.dto.response.FeedbackConfirmationResponse;
 import review_engine.project.dto.response.FeedbackConversationResponse;
 import review_engine.project.dto.response.FeedbackQuestionResponse;
 import review_engine.project.dto.response.PublicFeedbackPageResponse;
@@ -18,6 +19,8 @@ import review_engine.project.exception.ApiException;
 import review_engine.project.repository.ConversationMessageRepository;
 import review_engine.project.repository.FeedbackConversationRepository;
 import review_engine.project.repository.FeedbackQuestionRepository;
+import review_engine.project.repository.FeedbackRepository;
+import review_engine.project.enums.FeedbackRequestStatus;
 
 import java.time.Clock;
 import java.nio.charset.StandardCharsets;
@@ -34,24 +37,44 @@ public class FeedbackConversationService {
     private final FeedbackConversationRepository conversationRepository;
     private final ConversationMessageRepository messageRepository;
     private final FeedbackQuestionRepository questionRepository;
+    private final FeedbackRepository feedbackRepository;
     private final Clock clock;
 
     public FeedbackConversationService(FeedbackRequestService requestService,
                                        FeedbackConversationRepository conversationRepository,
                                        ConversationMessageRepository messageRepository,
-                                       FeedbackQuestionRepository questionRepository, Clock clock) {
+                                       FeedbackQuestionRepository questionRepository,
+                                       FeedbackRepository feedbackRepository, Clock clock) {
         this.requestService = requestService;
         this.conversationRepository = conversationRepository;
         this.messageRepository = messageRepository;
         this.questionRepository = questionRepository;
+        this.feedbackRepository = feedbackRepository;
         this.clock = clock;
     }
 
     @Transactional(readOnly = true)
     public PublicFeedbackPageResponse validateLink(String token) {
-        FeedbackRequest request = requestService.requireValidToken(token, false);
+        FeedbackRequest request = requestService.requireValidPageToken(token);
+        if (request.getStatus() == FeedbackRequestStatus.COMPLETED) {
+            feedbackRepository.findByFeedbackRequestIdAndBusinessId(
+                            request.getId(), request.getBusiness().getId())
+                    .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND,
+                            "Feedback link is invalid or unavailable."));
+            String configuredUrl = request.getBusiness().getGoogleReviewUrl();
+            boolean reviewAvailable = GoogleReviewUrlValidator.isValid(configuredUrl);
+            String completionMessage = "Thank you. Your feedback has been received.";
+            FeedbackConfirmationResponse completion = new FeedbackConfirmationResponse(
+                    true, completionMessage, true, true, completionMessage, reviewAvailable,
+                    reviewAvailable ? GoogleReviewUrlValidator.validate(configuredUrl) : null,
+                    reviewAvailable
+                            ? "If you would like to share your experience publicly, you can leave an optional Google review."
+                            : null);
+            return new PublicFeedbackPageResponse(
+                    request.getBusiness().getName(), request.getExpiresAt(), List.of(), completion);
+        }
         return new PublicFeedbackPageResponse(request.getBusiness().getName(), request.getExpiresAt(),
-                activeQuestions(request));
+                activeQuestions(request), null);
     }
 
     @Transactional

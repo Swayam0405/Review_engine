@@ -7,6 +7,7 @@ import review_engine.project.entity.Feedback;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.Collection;
 import java.util.UUID;
 
 /**
@@ -14,6 +15,11 @@ import java.util.UUID;
  */
 public interface FeedbackRepository extends JpaRepository<Feedback, UUID> {
     boolean existsByFeedbackRequestId(UUID feedbackRequestId);
+
+    Optional<Feedback> findByFeedbackRequestIdAndBusinessId(UUID feedbackRequestId, UUID businessId);
+
+    List<Feedback> findAllByFeedbackRequestIdInAndBusinessId(
+            Collection<UUID> feedbackRequestIds, UUID businessId);
 
     Optional<Feedback> findByIdAndBusinessId(UUID id, UUID businessId);
 

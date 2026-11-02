@@ -9,5 +9,6 @@ import java.util.List;
 public record PublicFeedbackPageResponse(
         String businessName,
         Instant expiresAt,
-        List<FeedbackQuestionResponse> questions) {
+        List<FeedbackQuestionResponse> questions,
+        FeedbackConfirmationResponse completion) {
 }

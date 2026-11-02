@@ -165,6 +165,28 @@ public class FeedbackRequestService {
     }
 
     public FeedbackRequest requireValidToken(String token, boolean lock) {
+        FeedbackRequest request = verifiedToken(token, lock);
+        if (request.getStatus() == FeedbackRequestStatus.COMPLETED
+                || request.getStatus() == FeedbackRequestStatus.EXPIRED
+                || request.getStatus() == FeedbackRequestStatus.CANCELLED
+                || request.getStatus() == FeedbackRequestStatus.FAILED) {
+            throw invalidToken();
+        }
+        return request;
+    }
+
+    // Completed links may restore the page, while conversation and submission operations remain blocked.
+    public FeedbackRequest requireValidPageToken(String token) {
+        FeedbackRequest request = verifiedToken(token, false);
+        if (request.getStatus() == FeedbackRequestStatus.EXPIRED
+                || request.getStatus() == FeedbackRequestStatus.CANCELLED
+                || request.getStatus() == FeedbackRequestStatus.FAILED) {
+            throw invalidToken();
+        }
+        return request;
+    }
+
+    private FeedbackRequest verifiedToken(String token, boolean lock) {
         if (token == null || token.length() < 32 || token.length() > 128
                 || !token.matches("[A-Za-z0-9_-]+")) {
             throw invalidToken();
@@ -177,12 +199,6 @@ public class FeedbackRequestService {
         }
         if (!request.getExpiresAt().isAfter(clock.instant())) {
             throw new ApiException(HttpStatus.GONE, "This feedback link has expired.");
-        }
-        if (request.getStatus() == FeedbackRequestStatus.COMPLETED
-                || request.getStatus() == FeedbackRequestStatus.EXPIRED
-                || request.getStatus() == FeedbackRequestStatus.CANCELLED
-                || request.getStatus() == FeedbackRequestStatus.FAILED) {
-            throw invalidToken();
         }
         return request;
     }
