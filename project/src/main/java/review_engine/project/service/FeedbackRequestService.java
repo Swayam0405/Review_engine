@@ -12,6 +12,7 @@ import review_engine.project.dto.request.CreateFeedbackRequest;
 import review_engine.project.dto.response.FeedbackRequestResponse;
 import review_engine.project.dto.response.PageResponse;
 import review_engine.project.entity.Business;
+import review_engine.project.entity.Feedback;
 import review_engine.project.entity.FeedbackOutboxEvent;
 import review_engine.project.entity.FeedbackRequest;
 import review_engine.project.entity.TransactionEntity;
@@ -20,13 +21,16 @@ import review_engine.project.enums.FeedbackRequestStatus;
 import review_engine.project.enums.TransactionStatus;
 import review_engine.project.exception.ApiException;
 import review_engine.project.repository.FeedbackOutboxRepository;
+import review_engine.project.repository.FeedbackRepository;
 import review_engine.project.repository.FeedbackRequestRepository;
 import review_engine.project.repository.TransactionRepository;
 
 import java.time.Clock;
 import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * Creates and manages owner-scoped invitations and their durable scheduling events.
@@ -34,6 +38,7 @@ import java.util.UUID;
 @Service
 public class FeedbackRequestService {
     private final FeedbackRequestRepository requestRepository;
+    private final FeedbackRepository feedbackRepository;
     private final FeedbackOutboxRepository outboxRepository;
     private final TransactionRepository transactionRepository;
     private final BusinessScopeService businessScope;
@@ -42,11 +47,13 @@ public class FeedbackRequestService {
     private final Clock clock;
 
     public FeedbackRequestService(FeedbackRequestRepository requestRepository,
+                                  FeedbackRepository feedbackRepository,
                                   FeedbackOutboxRepository outboxRepository,
                                   TransactionRepository transactionRepository,
                                   BusinessScopeService businessScope, FeedbackTokenService tokens,
                                   FeedbackProperties properties, Clock clock) {
         this.requestRepository = requestRepository;
+        this.feedbackRepository = feedbackRepository;
         this.outboxRepository = outboxRepository;
         this.transactionRepository = transactionRepository;
         this.businessScope = businessScope;
@@ -111,13 +118,27 @@ public class FeedbackRequestService {
         Page<FeedbackRequest> requests = status == null
                 ? requestRepository.findAllByBusinessId(businessId, pageable)
                 : requestRepository.findAllByBusinessIdAndStatus(businessId, status, pageable);
-        return PageResponse.from(requests.map(request -> response(request, false)));
+        Map<UUID, UUID> feedbackIds = requests.isEmpty()
+                ? Map.of()
+                : feedbackRepository.findAllByFeedbackRequestIdInAndBusinessId(
+                                requests.getContent().stream().map(FeedbackRequest::getId).toList(), businessId)
+                        .stream()
+                        .collect(Collectors.toMap(
+                                feedback -> feedback.getFeedbackRequest().getId(),
+                                Feedback::getId));
+        return PageResponse.from(requests.map(request -> response(
+                request, false, feedbackIds.get(request.getId()))));
     }
 
     @Transactional(readOnly = true)
     public FeedbackRequestResponse get(UUID ownerId, UUID requestId) {
         UUID businessId = businessScope.requireBusiness(ownerId).getId();
-        return response(find(requestId, businessId), false);
+        FeedbackRequest request = find(requestId, businessId);
+        UUID feedbackId = feedbackRepository.findByFeedbackRequestIdAndBusinessId(
+                        request.getId(), businessId)
+                .map(Feedback::getId)
+                .orElse(null);
+        return response(request, false, feedbackId);
     }
 
     @Transactional
@@ -228,9 +249,14 @@ public class FeedbackRequestService {
     }
 
     private FeedbackRequestResponse response(FeedbackRequest request, boolean includeLink) {
+        return response(request, includeLink, null);
+    }
+
+    private FeedbackRequestResponse response(
+            FeedbackRequest request, boolean includeLink, UUID feedbackId) {
         return new FeedbackRequestResponse(request.getId(), request.getTransaction().getId(),
                 request.getCustomer().getId(), request.getStatus(), request.getScheduledAt(), request.getSentAt(),
                 request.getDeliveredAt(), request.getCompletedAt(), request.getExpiresAt(), request.getCreatedAt(),
-                includeLink ? feedbackLink(request) : null);
+                includeLink ? feedbackLink(request) : null, feedbackId);
     }
 }

@@ -233,6 +233,13 @@ backups. Rotating it invalidates outstanding links because no raw token is store
 Feedback requests expire after the configured lifetime; the scheduled job persists the
 EXPIRED status. Completed feedback cannot be submitted again.
 
+The public page-validation GET can recover confirmation for completed, still-valid
+tokens, but does not expose submitted content or analysis and does not restore
+conversation access. A recovered review URL uses the business's currently configured
+valid Google review destination. Owner-scoped feedback-request list/detail responses
+include a nullable `feedbackId` for the actual submitted feedback; the relationship
+uses the existing unique feedback-request foreign key and requires no schema migration.
+
 ### Phase 5 AI analysis and review drafts
 
 AI is disabled unless `AI_ENABLED=true`. When enabled, configure `AI_API_KEY` and
@@ -248,7 +255,10 @@ below. Insights use deterministic database aggregations for metrics and use AI o
 evidence-grounded period summaries, which are cached for the exact requested period.
 Date parameters accept ISO-8601 instants. By default, the service reports the preceding
 30 days; a requested period must be positive and no longer than 366 days. AI summaries
-require at least three completed feedback analyses for the period.
+require at least three completed feedback analyses for the period. The dashboard
+generation endpoint retains freshness/cooldown behavior unless `force=true`, serializes
+concurrent generation per business and period, and remains subject to the configured
+per-IP AI rate limit. Owners should normally leave `force` unset.
 
 | Method and path | Request body / query | Authentication | Result |
 | --- | --- | --- | --- |

@@ -19,5 +19,6 @@ public record FeedbackRequestResponse(
         Instant completedAt,
         Instant expiresAt,
         Instant createdAt,
-        String feedbackLink) {
+        String feedbackLink,
+        UUID feedbackId) {
 }
